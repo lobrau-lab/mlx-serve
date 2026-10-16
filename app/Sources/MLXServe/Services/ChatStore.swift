@@ -82,13 +82,19 @@ final class ChatStore {
         var messages: [String: [ChatMessage]] = [:]
         var sessions: [ChatSession] = []
         do {
+            try database.query("SELECT session_id, count(*) FROM chat_messages GROUP BY session_id") { row in
+                if let sessionId = row.text(0) {
+                    messages[sessionId] = []
+                    messages[sessionId]?.reserveCapacity(row.integer(1))
+                }
+            }
             try database.query("SELECT session_id, id, body FROM chat_messages ORDER BY seq") { row in
                 let sessionId = row.text(0) ?? ""
                 do {
                     let body = Data((row.text(2) ?? "").utf8)
-                    messages[sessionId, default: []].append(try Self.decoder.decode(ChatMessage.self, from: body))
+                    messages[sessionId]?.append(try Self.decoder.decode(ChatMessage.self, from: body))
                 } catch {
-                    Self.log("skipped message \(row.text(1) ?? "?") of chat \(sessionId): \(error)")
+                    Self.log("skipped message \(row.text(1) ?? \"?\" ) of chat \(sessionId): \(error)")
                 }
             }
             let columns = Self.sessionColumns.map { $0.name }.joined(separator: ", ")

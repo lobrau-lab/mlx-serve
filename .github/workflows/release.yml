@@ -111,19 +111,21 @@ jobs:
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
           if [ -z "$APPLE_CERTIFICATE_BASE64" ]; then
-            echo "No cert"
-            exit 0
+            echo "Skipping certificate import because APPLE_CERTIFICATE_BASE64 is empty."
+          else
+            echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > $RUNNER_TEMP/certificate.p12
+            security import $RUNNER_TEMP/certificate.p12 \
+              -P "$APPLE_CERTIFICATE_PASSWORD" \
+              -A \
+              -f pkcs12 \
+              -k "$KEYCHAIN_PATH"
           fi
-          echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > $RUNNER_TEMP/certificate.p12
-          security import $RUNNER_TEMP/certificate.p12 \
-            -P "$APPLE_CERTIFICATE_PASSWORD" \
-            -A \
-            -f pkcs12 \
-            -k "$KEYCHAIN_PATH"
 
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
-          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+          if [ -n "$APPLE_CERTIFICATE_BASE64" ]; then
+            security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+            security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
+            security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+          fi
 
       - name: Extract version
         id: version
@@ -320,12 +322,20 @@ jobs:
               "$STAGING/lib/libwebp.dylib" 2>/dev/null || true
           fi
 
-          for lib in "$STAGING/lib/"*.dylib; do
-            [ -f "$lib" ] && codesign --force --options runtime --sign "$SIGNING_IDENTITY" "$lib"
-          done
-          codesign --force --options runtime --sign "$SIGNING_IDENTITY" "$STAGING/mlx-serve"
+          if [ -n "$APPLE_CERTIFICATE_BASE64" ]; then
+            for lib in "$STAGING/lib/"*.dylib; do
+              [ -f "$lib" ] && codesign --force --options runtime --sign "$SIGNING_IDENTITY" "$lib"
+            done
+            codesign --force --options runtime --sign "$SIGNING_IDENTITY" "$STAGING/mlx-serve"
 
-          codesign --verify --deep --strict --verbose=2 "$STAGING/mlx-serve"
+            codesign --verify --deep --strict --verbose=2 "$STAGING/mlx-serve"
+          else
+            echo "Skipping codesign because APPLE_CERTIFICATE_BASE64 is empty."
+            for lib in "$STAGING/lib/"*.dylib; do
+              [ -f "$lib" ] && codesign --force --sign "-" "$lib"
+            done
+            codesign --force --sign "-" "$STAGING/mlx-serve"
+          fi
 
           # Smoke test the install_name_tool-rewired binary so missing-dylib
           # errors surface here rather than after notarization.
@@ -485,28 +495,42 @@ jobs:
 
           # Sign inside-out
           chmod -R u+w "$APP"
-          for fw in "$CONTENTS/Frameworks/"*.metallib "$CONTENTS/Frameworks/"*.dylib; do
-            [ -f "$fw" ] && codesign --force --options runtime --sign "$SIGNING_IDENTITY" "$fw"
-          done
-          # Embedded .framework bundles (YbridOpus/YbridOgg) — re-sign over the
-          # vendor signature with our Developer ID + hardened runtime so dyld
-          # accepts them and notarization passes.
-          for fw in "$CONTENTS/Frameworks/"*.framework; do
-            [ -d "$fw" ] && codesign --force --options runtime --sign "$SIGNING_IDENTITY" "$fw"
-          done
-          codesign --force --options runtime --sign "$SIGNING_IDENTITY" "$CONTENTS/MacOS/mlx-serve"
-          # MLXCore + the .app need the mic entitlement, or Voice mode is denied
-          # microphone access under hardened runtime without ever prompting.
-          # Frameworks/dylibs and the headless mlx-serve must NOT carry it.
-          codesign --force --options runtime --entitlements app/MLXCore.entitlements --sign "$SIGNING_IDENTITY" "$CONTENTS/MacOS/MLXCore"
-          codesign --force --options runtime --entitlements app/MLXCore.entitlements --sign "$SIGNING_IDENTITY" "$APP"
+                    if [ -n "$APPLE_CERTIFICATE_BASE64" ]; then
+            for fw in "$CONTENTS/Frameworks/"*.metallib "$CONTENTS/Frameworks/"*.dylib; do
+              [ -f "$fw" ] && codesign --force --options runtime --sign "$SIGNING_IDENTITY" "$fw"
+            done
+            # Embedded .framework bundles (YbridOpus/YbridOgg) — re-sign over the
+            # vendor signature with our Developer ID + hardened runtime so dyld
+            # accepts them and notarization passes.
+            for fw in "$CONTENTS/Frameworks/"*.framework; do
+              [ -d "$fw" ] && codesign --force --options runtime --sign "$SIGNING_IDENTITY" "$fw"
+            done
+            codesign --force --options runtime --sign "$SIGNING_IDENTITY" "$CONTENTS/MacOS/mlx-serve"
+            # MLXCore + the .app need the mic entitlement, or Voice mode is denied
+            # microphone access under hardened runtime without ever prompting.
+            # Frameworks/dylibs and the headless mlx-serve must NOT carry it.
+            codesign --force --options runtime --entitlements app/MLXCore.entitlements --sign "$SIGNING_IDENTITY" "$CONTENTS/MacOS/MLXCore"
+            codesign --force --options runtime --entitlements app/MLXCore.entitlements --sign "$SIGNING_IDENTITY" "$APP"
 
-          codesign --verify --deep --strict --verbose=2 "$APP"
+            codesign --verify --deep --strict --verbose=2 "$APP"
+          else
+            echo "Skipping codesign because APPLE_CERTIFICATE_BASE64 is empty."
+            for fw in "$CONTENTS/Frameworks/"*.metallib "$CONTENTS/Frameworks/"*.dylib; do
+              [ -f "$fw" ] && codesign --force --sign "-" "$fw"
+            done
+            for fw in "$CONTENTS/Frameworks/"*.framework; do
+              [ -d "$fw" ] && codesign --force --sign "-" "$fw"
+            done
+            codesign --force --sign "-" "$CONTENTS/MacOS/mlx-serve"
+
+            codesign --force --entitlements app/MLXCore.entitlements --sign "-" "$CONTENTS/MacOS/MLXCore"
+            codesign --force --entitlements app/MLXCore.entitlements --sign "-" "$APP"
+          fi
           ditto -c -k --keepParent "$APP" "MLXCore-app.zip"
 
       # ── Notarize both ──
       - name: Notarize CLI
-        if: ${{ !inputs.dry_run }}
+        if: ${{ !inputs.dry_run && secrets.APPLE_CERTIFICATE_BASE64 != '' }}
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
@@ -519,7 +543,7 @@ jobs:
             --wait
 
       - name: Notarize app bundle
-        if: ${{ !inputs.dry_run }}
+        if: ${{ !inputs.dry_run && secrets.APPLE_CERTIFICATE_BASE64 != '' }}
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}

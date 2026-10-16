@@ -4112,6 +4112,10 @@ fn looseBoolSpelling(raw: []const u8) ?bool {
     return null;
 }
 
+/// Strict parse of a container string that admits a key repeated with the SAME
+/// value (issue #402: a model spelling `header` twice per item) and refuses a
+/// key repeated with different values: the two are told apart by parsing
+/// first-wins and last-wins and comparing the documents.
 fn parseAndStringify(
     allocator: std.mem.Allocator,
     text: []const u8,
@@ -4123,10 +4127,6 @@ fn parseAndStringify(
     return .{ .parsed = parsed, .stringified = stringified };
 }
 
-/// Strict parse of a container string that admits a key repeated with the SAME
-/// value (issue #402: a model spelling `header` twice per item) and refuses a
-/// key repeated with different values: the two are told apart by parsing
-/// first-wins and last-wins and comparing the documents.
 fn parseContainerAllowingRepeats(allocator: std.mem.Allocator, text: []const u8) ?std.json.Parsed(std.json.Value) {
     var first = parseAndStringify(allocator, text, .use_first) orelse return null;
     defer allocator.free(first.stringified);
