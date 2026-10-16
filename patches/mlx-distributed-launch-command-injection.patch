@@ -1,0 +1,47 @@
+diff --git a/python/mlx/_distributed_utils/launch.py b/python/mlx/_distributed_utils/launch.py
+index 0e661e3..9999999 100644
+--- a/python/mlx/_distributed_utils/launch.py
++++ b/python/mlx/_distributed_utils/launch.py
+@@ -50,16 +50,17 @@ class RemoteProcess(CommandProcess):
+         cmd = RemoteProcess.make_launch_script(
+             rank, python, cwd, files, env, command, is_local
+         )
+-        if not is_local:
+-            cmd = f"ssh -tt -o LogLevel=QUIET {shlex.quote(host)} {shlex.quote(cmd)}"
++        if is_local:
++            cmd_args = ["/bin/bash", "-c", cmd]
++        else:
++            cmd_args = ["ssh", "-tt", "-o", "LogLevel=QUIET", host, cmd]
+
+         self._host = host
+         self._pidfile = None
+         self._is_local = is_local
+         self._process = Popen(
+-            cmd,
+-            shell=True,
+-            executable="/bin/bash",
++            cmd_args,
++            shell=False,
+             stdin=PIPE,
+             stdout=PIPE,
+             stderr=PIPE,
+@@ -92,13 +93,14 @@ class RemoteProcess(CommandProcess):
+
+         # Kill the remote program if possible
+         cmd = RemoteProcess.make_kill_script(self._pidfile)
+-        if not self._is_local:
+-            cmd = f"ssh {shlex.quote(self._host)} {shlex.quote(cmd)}"
++        if self._is_local:
++            cmd_args = ["/bin/bash", "-c", cmd]
++        else:
++            cmd_args = ["ssh", self._host, cmd]
+         c = run(
+-            cmd,
++            cmd_args,
+             check=True,
+-            shell=True,
+-            executable="/bin/bash",
++            shell=False,
+             capture_output=True,
+             text=True,
+         )
