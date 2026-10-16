@@ -577,13 +577,11 @@ class TestServer {
             }
 
             // Pad detection
-            if receivedToolCalls.isEmpty {
-                let lastContent = appState.chatSessions
-                    .first(where: { $0.id == sessionId })?.messages.last?.content ?? ""
+            if receivedToolCalls.isEmpty, let sIdx = appState.chatSessions.firstIndex(where: { $0.id == sessionId }) {
+                let lastContent = appState.chatSessions[sIdx].messages.last?.content ?? ""
                 let cleaned = lastContent.replacingOccurrences(of: "<pad>", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
                 if cleaned.isEmpty {
-                    if let sIdx = appState.chatSessions.firstIndex(where: { $0.id == sessionId }),
-                       !appState.chatSessions[sIdx].messages.isEmpty {
+                    if !appState.chatSessions[sIdx].messages.isEmpty {
                         appState.chatSessions[sIdx].messages.removeLast()
                     }
                     padRetries += 1

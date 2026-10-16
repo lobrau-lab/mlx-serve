@@ -1209,15 +1209,13 @@ final class ChatTurnEngine: ObservableObject, TurnRunning {
             // Check for pad-only or empty responses — retry limited times.
             // Mark the empty message as failedRetry so it's hidden from API history
             // but its reasoning (if any) stays visible in the UI.
-            if receivedToolCalls.isEmpty {
-                let lastContent = appState.chatSessions
-                    .first(where: { $0.id == sessionId })?.messages.last?.content ?? ""
+            if receivedToolCalls.isEmpty, let sIdx = appState.chatSessions.firstIndex(where: { $0.id == sessionId }) {
+                let lastContent = appState.chatSessions[sIdx].messages.last?.content ?? ""
                 let cleaned = lastContent
                     .replacingOccurrences(of: "<pad>", with: "")
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 if cleaned.isEmpty {
-                    if let sIdx = appState.chatSessions.firstIndex(where: { $0.id == sessionId }),
-                       !appState.chatSessions[sIdx].messages.isEmpty {
+                    if !appState.chatSessions[sIdx].messages.isEmpty {
                         let mIdx = appState.chatSessions[sIdx].messages.count - 1
                         appState.chatSessions[sIdx].messages[mIdx].failedRetry = true
                     }
@@ -1240,9 +1238,8 @@ final class ChatTurnEngine: ObservableObject, TurnRunning {
             // ugly and uninformative. When we detect one, mark the garbled
             // turn as failedRetry (hidden from API history) and ask the model
             // for a plain-text summary before returning control to the user.
-            if receivedToolCalls.isEmpty {
-                let lastContent = appState.chatSessions
-                    .first(where: { $0.id == sessionId })?.messages.last?.content ?? ""
+            if receivedToolCalls.isEmpty, let sIdx = appState.chatSessions.firstIndex(where: { $0.id == sessionId }) {
+                let lastContent = appState.chatSessions[sIdx].messages.last?.content ?? ""
 
                 // Truncation, NOT a ghost. When the cap was hit AND the content
                 // still carries a tool-call opener with no matching close, the
@@ -1254,8 +1251,7 @@ final class ChatTurnEngine: ObservableObject, TurnRunning {
                 // fine, just too long). Must precede the ghost check, which also
                 // matches `<function=`/`<tool_call>`.
                 if maxTokensHit && Self.hasUnclosedToolCallOpener(lastContent) && retry.allowTruncationRetry() {
-                    if let sIdx = appState.chatSessions.firstIndex(where: { $0.id == sessionId }),
-                       !appState.chatSessions[sIdx].messages.isEmpty {
+                    if !appState.chatSessions[sIdx].messages.isEmpty {
                         let mIdx = appState.chatSessions[sIdx].messages.count - 1
                         appState.chatSessions[sIdx].messages[mIdx].failedRetry = true
                     }
@@ -1280,8 +1276,7 @@ final class ChatTurnEngine: ObservableObject, TurnRunning {
                     lastContent.contains("<tool name=") ||
                     lastContent.contains("<function=")
                 if looksLikeGhostToolCall && retry.allowGhostRetry() {
-                    if let sIdx = appState.chatSessions.firstIndex(where: { $0.id == sessionId }),
-                       !appState.chatSessions[sIdx].messages.isEmpty {
+                    if !appState.chatSessions[sIdx].messages.isEmpty {
                         let mIdx = appState.chatSessions[sIdx].messages.count - 1
                         appState.chatSessions[sIdx].messages[mIdx].failedRetry = true
                     }
