@@ -94,7 +94,8 @@ final class ChatStore {
                     let body = Data((row.text(2) ?? "").utf8)
                     messages[sessionId]?.append(try Self.decoder.decode(ChatMessage.self, from: body))
                 } catch {
-                    Self.log("skipped message \(row.text(1) ?? \"?\" ) of chat \(sessionId): \(error)")
+                    let rowId = row.text(1) ?? "?"
+                    Self.log("skipped message \(rowId) of chat \(sessionId): \(error)")
                 }
             }
             let columns = Self.sessionColumns.map { $0.name }.joined(separator: ", ")
