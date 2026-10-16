@@ -40,7 +40,7 @@ die() { echo "[build-mlx] ERROR: $*" >&2; exit 1; }
 MLX_SHA="$(git -C "$MLX_SRC" rev-parse --short=12 HEAD)"
 MLXC_SHA="$(git -C "$MLXC_SRC" rev-parse --short=12 HEAD)"
 # The mlx-c patch below is part of the build: an edited patch must rebuild.
-MLX_LAUNCH_PATCH="$REPO_ROOT/patches/mlx-distributed-launch-command-injection.patch"
+MLX_LAUNCH_PATCH="$REPO_ROOT/patches/security-distributed-launch.patch"
 MLXC_PATCH="$REPO_ROOT/patches/mlxc-gather-qmm-global-scale.patch"
 PATCH_SHA="$(cat "$MLX_LAUNCH_PATCH" "$MLXC_PATCH" | shasum | cut -c1-12)"
 WANT="mlx=$MLX_SHA mlxc=$MLXC_SHA patch=$PATCH_SHA target=$DEPLOYMENT_TARGET"

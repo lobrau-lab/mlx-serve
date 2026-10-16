@@ -1,5 +1,5 @@
 diff --git a/python/mlx/_distributed_utils/launch.py b/python/mlx/_distributed_utils/launch.py
-index 0e661e3..9999999 100644
+index 0e661e3..2363a7d 100644
 --- a/python/mlx/_distributed_utils/launch.py
 +++ b/python/mlx/_distributed_utils/launch.py
 @@ -50,16 +50,17 @@ class RemoteProcess(CommandProcess):
