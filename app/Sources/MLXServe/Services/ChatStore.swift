@@ -94,6 +94,8 @@ final class ChatStore {
                     let body = Data((row.text(2) ?? "").utf8)
                     messages[sessionId]?.append(try Self.decoder.decode(ChatMessage.self, from: body))
                 } catch {
+                    let rowId = row.text(1) ?? "?"
+                    Self.log("skipped message \(rowId) of chat \(sessionId): \(error)")
                     Self.log("skipped message \(row.text(1) ?? \"?\" ) of chat \(sessionId): \(error)")
                 }
             }

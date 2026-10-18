@@ -246,7 +246,7 @@ test "chat_template accepts HF's list-of-named-templates shape" {
     // not be served at all.
     const a = std.testing.allocator;
 
-    {   // the shape that panicked: pick the entry named "default"
+    { // the shape that panicked: pick the entry named "default"
         const json =
             \\{"chat_template":[{"name":"tool_use","template":"TOOLS"},
             \\{"name":"default","template":"PLAIN"}]}
@@ -255,7 +255,7 @@ test "chat_template accepts HF's list-of-named-templates shape" {
         defer p.deinit();
         try std.testing.expectEqualStrings("PLAIN", chatTemplateFromValue(p.value.object.get("chat_template")).?);
     }
-    {   // no "default" named: fall back to the first usable entry
+    { // no "default" named: fall back to the first usable entry
         const json =
             \\{"chat_template":[{"name":"tool_use","template":"TOOLS"}]}
         ;
@@ -263,7 +263,7 @@ test "chat_template accepts HF's list-of-named-templates shape" {
         defer p.deinit();
         try std.testing.expectEqualStrings("TOOLS", chatTemplateFromValue(p.value.object.get("chat_template")).?);
     }
-    {   // the ordinary string shape is untouched
+    { // the ordinary string shape is untouched
         const json =
             \\{"chat_template":"BARE"}
         ;
@@ -271,7 +271,7 @@ test "chat_template accepts HF's list-of-named-templates shape" {
         defer p.deinit();
         try std.testing.expectEqualStrings("BARE", chatTemplateFromValue(p.value.object.get("chat_template")).?);
     }
-    {   // junk shapes return null so the caller uses its jinja/family fallback
+    { // junk shapes return null so the caller uses its jinja/family fallback
         const json =
             \\{"chat_template":[{"name":"x"},{"nope":1}]}
         ;
@@ -281,7 +281,7 @@ test "chat_template accepts HF's list-of-named-templates shape" {
     }
     try std.testing.expect(chatTemplateFromValue(null) == null);
 
-    {   // transformers >= 5 saves the template to chat_template.jinja and leaves
+    { // transformers >= 5 saves the template to chat_template.jinja and leaves
         // an `{% include %}` POINTER in tokenizer_config.json (mlx-community
         // Laguna-S-2.1-oQ4e-fast, issue #169). jinja.cpp has no `include`, so
         // taking the pointer literally fails the render and SILENTLY drops to
@@ -294,7 +294,7 @@ test "chat_template accepts HF's list-of-named-templates shape" {
         defer p.deinit();
         try std.testing.expect(chatTemplateFromValue(p.value.object.get("chat_template")) == null);
     }
-    {   // whitespace/dash variants are the same pointer
+    { // whitespace/dash variants are the same pointer
         const json =
             \\{"chat_template":"\n  {%- include \"chat_template.jinja\" -%}\n"}
         ;
@@ -302,7 +302,7 @@ test "chat_template accepts HF's list-of-named-templates shape" {
         defer p.deinit();
         try std.testing.expect(chatTemplateFromValue(p.value.object.get("chat_template")) == null);
     }
-    {   // a real template that merely CONTAINS the word include is untouched
+    { // a real template that merely CONTAINS the word include is untouched
         const json =
             \\{"chat_template":"{% if x %}include{% endif %}"}
         ;
@@ -2695,7 +2695,7 @@ fn contentChannelTail(tpl: []const u8, rendered: []const u8, allow_channel_commi
     {
         return " to=user<|message|>";
     }
-    const tail = std.mem.trimEnd(u8, rendered[rendered.len -| 64 ..], "\n\r\t ");
+    const tail = std.mem.trimEnd(u8, rendered[rendered.len -| 64..], "\n\r\t ");
     if (k2ThinkOpenerAt(tail)) |opener| {
         inline for (k2_think_openers) |o| {
             if (std.mem.eql(u8, opener, o)) return "</" ++ o[1..];
@@ -3110,9 +3110,9 @@ pub fn streamShouldBufferForTools(buf: []const u8) bool {
     // of these into a real tool open. Order doesn't matter; first endsWith
     // hit wins. Listed shortest-first for legibility.
     const tail_prefixes = [_][]const u8{
-        "<",     "<t",     "<to",     "<too",     "<tool",
-        "<|",    "<|t",    "<|to",    "<|too",    "<|tool",
-        "<|tool_", "<|tool_c", "<|tool_ca", "<|tool_cal",
+        "<",        "<t",        "<to",       "<too",       "<tool",
+        "<|",       "<|t",       "<|to",      "<|too",      "<|tool",
+        "<|tool_",  "<|tool_c",  "<|tool_ca", "<|tool_cal",
         // MiniCPM5 V3 `<function name="…">` — COMPLETE ladder. `<funct` is a
         // real decomposition in this vocabulary (`<f` id 54303 + `unct` id
         // 14185 decode to exactly `<funct`); omitting that one rung flushed the
@@ -4116,28 +4116,35 @@ fn looseBoolSpelling(raw: []const u8) ?bool {
 /// value (issue #402: a model spelling `header` twice per item) and refuses a
 /// key repeated with different values: the two are told apart by parsing
 /// first-wins and last-wins and comparing the documents.
+fn parseAndStringify(
+    allocator: std.mem.Allocator,
+    text: []const u8,
+    comptime behavior: anytype,
+) ?struct { parsed: std.json.Parsed(std.json.Value), stringified: []const u8 } {
+    var parsed = std.json.parseFromSlice(std.json.Value, allocator, text, .{ .duplicate_field_behavior = behavior }) catch return null;
+    errdefer parsed.deinit();
+    const stringified = std.json.Stringify.valueAlloc(allocator, parsed.value, .{}) catch return null;
+    return .{ .parsed = parsed, .stringified = stringified };
+}
+
 fn parseContainerAllowingRepeats(allocator: std.mem.Allocator, text: []const u8) ?std.json.Parsed(std.json.Value) {
-    var first = std.json.parseFromSlice(std.json.Value, allocator, text, .{ .duplicate_field_behavior = .use_first }) catch return null;
-    var last = std.json.parseFromSlice(std.json.Value, allocator, text, .{ .duplicate_field_behavior = .use_last }) catch {
-        first.deinit();
+    var first = parseAndStringify(allocator, text, .use_first) orelse return null;
+    defer allocator.free(first.stringified);
+
+    var last = parseAndStringify(allocator, text, .use_last) orelse {
+        first.parsed.deinit();
         return null;
     };
-    defer last.deinit();
-    const a = std.json.Stringify.valueAlloc(allocator, first.value, .{}) catch {
-        first.deinit();
-        return null;
-    };
-    defer allocator.free(a);
-    const b = std.json.Stringify.valueAlloc(allocator, last.value, .{}) catch {
-        first.deinit();
-        return null;
-    };
-    defer allocator.free(b);
-    if (!std.mem.eql(u8, a, b)) {
-        first.deinit();
+    defer {
+        last.parsed.deinit();
+        allocator.free(last.stringified);
+    }
+
+    if (!std.mem.eql(u8, first.stringified, last.stringified)) {
+        first.parsed.deinit();
         return null;
     }
-    return first;
+    return first.parsed;
 }
 
 /// Coerce ONE value to the declared type. Returns null when the value already
@@ -4821,7 +4828,7 @@ fn parseSelfClosingToolTag(slice: []const u8) ?struct { name: []const u8, argume
         var w: usize = k + 1;
         while (w < slice.len and (slice[w] == ' ' or slice[w] == '\t' or slice[w] == '\n' or slice[w] == '\r')) w += 1;
         const close_markers = [_][]const u8{
-            "</tool_call>",   "</tool_calls>",
+            "</tool_call>",    "</tool_calls>",
             "</tool_request>", "</tool_requests>",
             "</tool>",
         };
@@ -11747,7 +11754,7 @@ test "parseToolCalls: <tool_call>{JSON} truncated before </tool_call>" {
     const allocator = testing.allocator;
     const text = "\n\n<tool_call>\n" ++
         \\{"name": "writeFile", "arguments": {"path": "vite.config.js", "content": "ok"}}
-        ++ "\n</tool_cal";
+    ++ "\n</tool_cal";
     const calls = (try parseToolCalls(allocator, text)) orelse return error.NoCalls;
     defer {
         for (calls) |tc| {
@@ -11770,7 +11777,7 @@ test "parseToolCalls: mismatched </tool_action> close still parses" {
     const allocator = testing.allocator;
     const text = "<tool_call>\n" ++
         \\{"name": "edit", "arguments": {"path":"mlx.html", "edits":[{"oldText": "  </ul>\n</body>", "newText": "  </ul>\n  <button onclick=\"alert('Hello from MLX')\">Click me</button>\n</body>"}]}
-        ++ "\n</tool_action>";
+    ++ "\n</tool_action>";
     const calls = (try parseToolCalls(allocator, text)) orelse return error.NoCalls;
     defer {
         for (calls) |tc| {
@@ -12231,9 +12238,9 @@ fn jsonValueEql(a: std.json.Value, b: std.json.Value) bool {
 /// Value strings chosen to collide with every JSON literal spelling the
 /// tag-format parsers used to guess from.
 const adversarial_strings = [_][]const u8{
-    "false",      "true",         "False",   "True",    "null",   "None",
-    "42",         "-7",           "3.14",    "0",       "1",      "",
-    "[1,2]",      "{\"k\":1}",    "nan",     "inf",     "  ",     "yes",
+    "false", "true",       "False",     "True",        "null", "None",
+    "42",    "-7",         "3.14",      "0",           "1",    "",
+    "[1,2]", "{\"k\":1}",  "nan",       "inf",         "  ",   "yes",
     "a\"b",  "line\nline", "tab\there", "back\\slash",
     "café ☕",
     "0x1f",  "{not json",  "[unclosed", "1e400",       "00",   "+5",
