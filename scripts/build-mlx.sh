@@ -40,8 +40,9 @@ die() { echo "[build-mlx] ERROR: $*" >&2; exit 1; }
 MLX_SHA="$(git -C "$MLX_SRC" rev-parse --short=12 HEAD)"
 MLXC_SHA="$(git -C "$MLXC_SRC" rev-parse --short=12 HEAD)"
 # The mlx-c patch below is part of the build: an edited patch must rebuild.
+MLX_LAUNCH_PATCH="$REPO_ROOT/patches/security-distributed-launch.patch"
 MLXC_PATCH="$REPO_ROOT/patches/mlxc-gather-qmm-global-scale.patch"
-PATCH_SHA="$(shasum "$MLXC_PATCH" | cut -c1-12)"
+PATCH_SHA="$(cat "$MLX_LAUNCH_PATCH" "$MLXC_PATCH" | shasum | cut -c1-12)"
 WANT="mlx=$MLX_SHA mlxc=$MLXC_SHA patch=$PATCH_SHA target=$DEPLOYMENT_TARGET"
 
 # Idempotent: skip when the staged build already matches the pinned SHAs.
@@ -79,6 +80,10 @@ cmake -S "$MLX_SRC" -B "$BUILD_ROOT/mlx" \
   -DCMAKE_INSTALL_PREFIX="$STAGE"
 cmake --build "$BUILD_ROOT/mlx" -j "$NCPU"
 cmake --install "$BUILD_ROOT/mlx" >/dev/null
+
+# Apply our Python launch script patch
+git -C "$MLX_SRC" checkout -- $(git -C "$MLX_SRC" apply --numstat -p1 "$MLX_LAUNCH_PATCH" | cut -f3)
+git -C "$MLX_SRC" apply -p1 "$MLX_LAUNCH_PATCH"
 
 # ── mlx-c against the staged mlx (same pairing brew uses: USE_SYSTEM_MLX) ────
 # MLX 0.32.3's gather_qmm takes a global_scale before sorted_indices; the

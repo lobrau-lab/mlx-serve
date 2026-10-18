@@ -96,6 +96,7 @@ final class ChatStore {
                 } catch {
                     let rowId = row.text(1) ?? "?"
                     Self.log("skipped message \(rowId) of chat \(sessionId): \(error)")
+                    Self.log("skipped message \(row.text(1) ?? \"?\" ) of chat \(sessionId): \(error)")
                 }
             }
             let columns = Self.sessionColumns.map { $0.name }.joined(separator: ", ")
