@@ -128,6 +128,7 @@ class AppState: ObservableObject {
     /// LATEST switch's completion clears `loadingModelPath` (see the didSet).
     private var modelSwitchGeneration = 0
     @Published var chatSessions: [ChatSession] = []
+    private var sessionIndexCache: [UUID: Int] = [:]
     @Published var activeChatId: UUID?
     /// Sidebar selection (multi-select). Bind the sidebar List to this set so
     /// macOS-style multi-selection (Cmd/Shift click, drag) works naturally.
@@ -161,7 +162,7 @@ class AppState: ObservableObject {
     }
 
     func sidebarGroup(of row: UUID) -> UUID? {
-        chatSessions.first { $0.id == row }?.groupId ?? terminals.sessions.session(row)?.groupId
+        session(id: row )?.groupId ?? terminals.sessions.session(row)?.groupId
     }
 
     /// Drag-to-reorder: `visible` is the whole panel in its current visual order.
@@ -211,7 +212,7 @@ class AppState: ObservableObject {
     /// to the placeholder and a terminal back to its numbered auto name.
     func renameSession(_ id: UUID, to name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let idx = chatSessions.firstIndex(where: { $0.id == id }) {
+        if let idx = sessionIndex(id: id) {
             chatSessions[idx].title = trimmed.isEmpty
                 ? ChatSessionTitle.placeholder(hasAgent: chatSessions[idx].agentId != nil)
                 : trimmed
@@ -892,6 +893,26 @@ class AppState: ObservableObject {
     nonisolated static func sidebarSessions(from all: [ChatSession]) -> [ChatSession] {
         all.filter { $0.taskRunId == nil }
     }
+
+    func sessionIndex(id: UUID) -> Int? {
+        if let idx = sessionIndexCache[id], idx < chatSessions.count, chatSessions[idx].id == id {
+            return idx
+        }
+        if let idx = chatSessions.firstIndex(where: { $0.id == id }) {
+            sessionIndexCache[id] = idx
+            return idx
+        }
+        sessionIndexCache.removeValue(forKey: id)
+        return nil
+    }
+
+    func session(id: UUID) -> ChatSession? {
+        if let idx = sessionIndex(id: id) {
+            return chatSessions[idx]
+        }
+        return nil
+    }
+
     var visibleChatSessions: [ChatSession] { Self.sidebarSessions(from: chatSessions) }
 
     @discardableResult
@@ -1054,9 +1075,9 @@ class AppState: ObservableObject {
     }
 
     var activeSession: ChatSession? {
-        get { chatSessions.first { $0.id == activeChatId } }
+        get { activeChatId.flatMap { session(id: $0) } }
         set {
-            if let newValue, let idx = chatSessions.firstIndex(where: { $0.id == newValue.id }) {
+            if let newValue, let idx = sessionIndex(id: newValue.id) {
                 chatSessions[idx] = newValue
             }
         }
@@ -1075,7 +1096,7 @@ class AppState: ObservableObject {
     /// menu item offering it (`ChatFork.isForkable`).
     @discardableResult
     func forkSession(_ sessionId: UUID, from messageId: UUID) -> UUID? {
-        guard let source = chatSessions.first(where: { $0.id == sessionId }) else { return nil }
+        guard let source = session(id: sessionId ) else { return nil }
         let messages = ChatFork.prefix(source.messages, through: messageId)
         guard !messages.isEmpty else { return nil }
         let fork = ChatFork.session(from: source, messages: messages)
@@ -1146,7 +1167,7 @@ class AppState: ObservableObject {
     /// is still the one the pager belongs to.
     func finishRevisions(in sessionId: UUID) {
         let continuing = continuingSessions.remove(sessionId) != nil
-        guard let sIdx = chatSessions.firstIndex(where: { $0.id == sessionId }),
+        guard let sIdx = sessionIndex(id: sessionId),
               let mIdx = chatSessions[sIdx].messages.lastIndex(where: { $0.role == .assistant })
         else {
             // Nothing to attach it to, and holding it would leak the seed onto
@@ -1183,7 +1204,7 @@ class AppState: ObservableObject {
     /// not to re-run it. Deleting the rest of the thread would take the choice
     /// away; the messages after it are still there to delete by hand.
     func editAssistantMessage(in sessionId: UUID, messageId: UUID, newText: String) {
-        guard let sIdx = chatSessions.firstIndex(where: { $0.id == sessionId }),
+        guard let sIdx = sessionIndex(id: sessionId),
               let mIdx = chatSessions[sIdx].messages.firstIndex(where: { $0.id == messageId })
         else { return }
         let msg = chatSessions[sIdx].messages[mIdx]
@@ -1199,7 +1220,7 @@ class AppState: ObservableObject {
     /// Show a different version of a reply. `content` is what every reader
     /// uses, so switching writes the selected version into it.
     func selectRevision(in sessionId: UUID, messageId: UUID, index: Int) {
-        guard let sIdx = chatSessions.firstIndex(where: { $0.id == sessionId }),
+        guard let sIdx = sessionIndex(id: sessionId),
               let mIdx = chatSessions[sIdx].messages.firstIndex(where: { $0.id == messageId })
         else { return }
         let msg = chatSessions[sIdx].messages[mIdx]
@@ -1215,13 +1236,13 @@ class AppState: ObservableObject {
     /// reply, and the reply is about to stop being cut. Leaving it would put
     /// "Stopped — hit the output limit" under a paragraph that carried on.
     func clearTruncationNotice(in sessionId: UUID) {
-        guard let sIdx = chatSessions.firstIndex(where: { $0.id == sessionId }),
+        guard let sIdx = sessionIndex(id: sessionId),
               let mIdx = chatSessions[sIdx].messages.indices.last else { return }
         chatSessions[sIdx].messages[mIdx].truncationNotice = nil
     }
 
     func appendMessage(to sessionId: UUID, message: ChatMessage) {
-        guard let idx = chatSessions.firstIndex(where: { $0.id == sessionId }) else { return }
+        guard let idx = sessionIndex(id: sessionId) else { return }
         chatSessions[idx].messages.append(message)
         chatSessions[idx].updatedAt = Date()
         // Auto-title from the first user message. The gate is "is this still a
@@ -1236,7 +1257,7 @@ class AppState: ObservableObject {
 
     /// Drop one message from a conversation.
     func deleteMessage(in sessionId: UUID, messageId: UUID) {
-        guard let sIdx = chatSessions.firstIndex(where: { $0.id == sessionId }),
+        guard let sIdx = sessionIndex(id: sessionId),
               let mIdx = chatSessions[sIdx].messages.firstIndex(where: { $0.id == messageId })
         else { return }
         var removed = IndexSet(integer: mIdx)
@@ -1267,7 +1288,7 @@ class AppState: ObservableObject {
     /// everything above it back to the nearest boundary (`ChatTurn`), so a
     /// tool call never outlives its results and the reader's question stays.
     func deleteTurn(in sessionId: UUID, endingAt messageId: UUID) {
-        guard let sIdx = chatSessions.firstIndex(where: { $0.id == sessionId }),
+        guard let sIdx = sessionIndex(id: sessionId),
               let range = ChatTurn.deletionRange(endingAt: messageId, in: chatSessions[sIdx].messages)
         else { return }
         let dropped = Array(chatSessions[sIdx].messages[range])
@@ -1284,7 +1305,7 @@ class AppState: ObservableObject {
     /// re-append a fresh copy) and by edit-and-resend (drop everything from
     /// the edited message onward before resubmitting its new text).
     func truncateMessages(in sessionId: UUID, keepingFirst count: Int) {
-        guard let sIdx = chatSessions.firstIndex(where: { $0.id == sessionId }),
+        guard let sIdx = sessionIndex(id: sessionId),
               count < chatSessions[sIdx].messages.count else { return }
         chatSessions[sIdx].messages.removeSubrange(count...)
         chatSessions[sIdx].updatedAt = Date()
@@ -1300,7 +1321,7 @@ class AppState: ObservableObject {
     ///   for a continuation already includes everything before it, and a rate
     ///   is not a quantity to sum.
     func updateLastMessage(in sessionId: UUID, content: String? = nil, reasoning: String? = nil, streaming: Bool? = nil, usage: TokenUsage? = nil, addingCompletionTokens: Bool = false, truncation: TruncationNotice.Notice? = nil) {
-        guard let sIdx = chatSessions.firstIndex(where: { $0.id == sessionId }),
+        guard let sIdx = sessionIndex(id: sessionId),
               !chatSessions[sIdx].messages.isEmpty else { return }
         let mIdx = chatSessions[sIdx].messages.count - 1
         if let content { chatSessions[sIdx].messages[mIdx].content += content }
@@ -1329,7 +1350,7 @@ class AppState: ObservableObject {
     // MARK: - Agent Helpers
 
     func updatePlanStatus(in sessionId: UUID, planId: UUID, status: PlanStatus) {
-        guard let sIdx = chatSessions.firstIndex(where: { $0.id == sessionId }) else { return }
+        guard let sIdx = sessionIndex(id: sessionId) else { return }
         for mIdx in chatSessions[sIdx].messages.indices {
             if chatSessions[sIdx].messages[mIdx].agentPlan?.id == planId {
                 chatSessions[sIdx].messages[mIdx].agentPlan?.status = status
@@ -1339,7 +1360,7 @@ class AppState: ObservableObject {
     }
 
     func appendToolResults(to sessionId: UUID, results: [StepResult]) {
-        guard let sIdx = chatSessions.firstIndex(where: { $0.id == sessionId }) else { return }
+        guard let sIdx = sessionIndex(id: sessionId) else { return }
         for mIdx in chatSessions[sIdx].messages.indices.reversed() {
             if chatSessions[sIdx].messages[mIdx].role == .assistant {
                 chatSessions[sIdx].messages[mIdx].toolResults = results

@@ -233,7 +233,7 @@ final class VoiceModeController: ObservableObject {
             // The voice CONVERSATION's session decides (its agent pick wins) —
             // the active tab is only the fallback before a binding exists.
             let sid = self.boundSessionId ?? appState.activeChatId
-            let session = appState.chatSessions.first { $0.id == sid }
+            let session = sid.flatMap { appState.session(id: $0) }
             // A chat tab's own pick wins for that conversation; otherwise the
             // tray's agent answers.
             let agentId = session?.agentId ?? appState.defaultAgentId
@@ -251,7 +251,7 @@ final class VoiceModeController: ObservableObject {
         }
         alreadyHeardMessage = { [weak appState] sid in
             guard let appState,
-                  let session = appState.chatSessions.first(where: { $0.id == sid }) else { return nil }
+                  let session = appState.session(id: sid) else { return nil }
             return Self.messageToVoice(in: session.messages)?.id
         }
         selectAgent = { [weak appState, weak self] id in
